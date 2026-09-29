@@ -315,7 +315,7 @@ router.patch(
       : (clientTransitions[currentStatus] || []);
 
     if (!allowedStatuses.includes(status)) {
-      return res.status(403).json({
+      return res.status(400).json({
         error: `Invalid status transition from ${currentStatus} to ${status} for ${isFreelancer ? 'Freelancer' : 'Client'}.`
       });
     }
