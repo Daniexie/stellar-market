@@ -41,6 +41,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api/v1
 const BASE_URL = API_URL.replace(/\/api\/?$/, "");
 
 const PORTFOLIO_MIME_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf"];
+const AVATAR_MIME_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 const PORTFOLIO_MAX_FILE_SIZE = 5 * 1024 * 1024;
 const PORTFOLIO_MAX_ITEMS = 10;
 
@@ -328,6 +329,12 @@ export default function SettingsPage() {
   async function handleAvatarFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (!AVATAR_MIME_TYPES.includes(file.type)) {
+      toast.error("Only JPG, PNG, GIF, or WebP images are allowed");
+      e.target.value = "";
+      return;
+    }
 
     if (file.size > 5 * 1024 * 1024) {
       toast.error("Image must be less than 5MB");
@@ -746,7 +753,7 @@ export default function SettingsPage() {
               <div className="flex items-center gap-4">
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/jpeg,image/png,image/gif,image/webp"
                   onChange={handleAvatarFileChange}
                   className="hidden"
                   id="avatar-upload"
@@ -791,7 +798,7 @@ export default function SettingsPage() {
                 </div>
               )}
               <p className="text-theme-text text-xs mt-2">
-                Max file size: 5MB. Supported formats: JPG, PNG, GIF
+                Max file size: 5MB. Supported formats: JPG, PNG, GIF, WebP
               </p>
             </div>
 
