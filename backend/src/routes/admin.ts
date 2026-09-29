@@ -13,6 +13,8 @@ import {
   queryFlaggedUsersSchema,
   getAuditLogsQuerySchema,
   getReportsAdminQuerySchema,
+  updateReportSchema,
+  patchSuspendUserSchema,
   GetJobsAdminQuery,
 } from "../schemas/admin";
 import { z, ZodError } from "zod";
@@ -335,10 +337,7 @@ router.patch(
   "/users/:id/suspend",
   validate({
     params: z.object({ id: z.string().min(1, "User ID is required") }),
-    body: z.object({
-      suspendReason: z.string().optional(),
-      isSuspended: z.boolean(),
-    }),
+    body: patchSuspendUserSchema,
   }),
   async (req: AuthRequest, res: Response): Promise<void> => {
     try {
@@ -1154,11 +1153,7 @@ router.patch(
   "/reports/:id",
   validate({
     params: z.object({ id: z.string().min(1, "Report ID is required") }),
-    body: z.object({
-      status: z.enum(REPORT_STATUSES),
-      suspend: z.boolean().optional(),
-      suspendReason: z.string().optional(),
-    }),
+    body: updateReportSchema,
   }),
   async (req: AuthRequest, res: Response): Promise<void> => {
     try {
