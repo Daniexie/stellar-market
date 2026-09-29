@@ -181,7 +181,11 @@ router.get(
   authenticate,
   validate({ query: queryDisputesSchema }),
   asyncHandler(async (req: AuthRequest, res: Response) => {
-    const query = req.query as unknown as { page: number; limit: number };
+    const query = req.query as unknown as {
+      status?: DisputeStatus;
+      page: number;
+      limit: number;
+    };
     const userId = req.userId!;
     const role = req.userRole;
 
@@ -199,7 +203,7 @@ router.get(
     }
 
     const result = await DisputeService.getDisputes(
-      { status: DisputeStatus.OPEN, userFilter },
+      { status: query.status ?? DisputeStatus.OPEN, userFilter },
       { page: query.page, limit: query.limit },
     );
 
