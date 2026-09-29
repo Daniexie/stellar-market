@@ -9,6 +9,7 @@ import {
   getJobsAdminQuerySchema,
   overrideDisputeSchema,
   queryPendingDisputesSchema,
+  queryAdminDisputesSchema,
   queryFlaggedUsersSchema,
   getAuditLogsQuerySchema,
   getReportsAdminQuerySchema,
@@ -411,9 +412,7 @@ router.delete(
       if (job.clientId) {
         await NotificationService.sendNotification({
           userId: job.clientId,
-          // Note: "CANCELLED" is not a member of the NotificationType enum;
-          // preserved as-is (pre-existing behavior, not a lint-pass concern).
-          type: "CANCELLED" as unknown as NotificationType,
+          type: NotificationType.JOB_REMOVED,
           title: "Job Removed by Moderator",
           message: `Your job listing "${job.title}" has been removed by a platform administrator for violating terms.`,
         });
@@ -532,28 +531,50 @@ router.post(
 
 /**
  * GET /api/admin/disputes
- * List all disputes with escalation status
+ * List all disputes with escalation status, paginated (page/limit)
  */
 router.get(
   "/disputes",
   async (req: AuthRequest, res: Response): Promise<void> => {
     try {
-      const disputes = await prisma.dispute.findMany({
-        include: {
-          job: {
-            select: {
-              id: true,
-              title: true,
-              clientId: true,
-              freelancerId: true,
+      const { page, limit } = queryAdminDisputesSchema.parse(req.query);
+      const skip = (page - 1) * limit;
+
+      const [disputes, total] = await Promise.all([
+        prisma.dispute.findMany({
+          skip,
+          take: limit,
+          include: {
+            job: {
+              select: {
+                id: true,
+                title: true,
+                clientId: true,
+                freelancerId: true,
+              },
             },
           },
-        },
-        orderBy: { createdAt: "desc" },
-      });
+          orderBy: { createdAt: "desc" },
+        }),
+        prisma.dispute.count(),
+      ]);
 
-      res.json({ disputes });
+      res.json({
+        disputes,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+        },
+      });
     } catch (error) {
+      if (error instanceof ZodError) {
+        res
+          .status(400)
+          .json({ error: "Validation error", details: error.issues });
+        return;
+      }
       logger.error({ err: error }, "Error fetching disputes:");
       res.status(500).json({ error: "Internal server error" });
     }
