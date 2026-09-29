@@ -91,14 +91,15 @@ and exits non-zero.
 
 The API enforces rate limits to prevent abuse and ensure fair usage:
 
-| Endpoint | Limit | Window | Key |
-|----------|-------|--------|-----|
-| `/api/*` (global) | 200 requests | 15 minutes | IP address |
-| `/api/auth/*` | 10 requests | 15 minutes | IP address |
-| `POST /api/jobs` | 30 requests | 1 hour | User ID (fallback: IP) |
-| `POST /api/reviews` | 30 requests | 1 hour | User ID (fallback: IP) |
-| `POST /api/disputes` | 30 requests | 1 hour | User ID (fallback: IP) |
-| `/api/auth/forgot-password` | 3 requests | 1 hour | IP address |
+| Endpoint                       | Limit        | Window   | Key                    |
+| ------------------------------ | ------------ | -------- | ---------------------- |
+| `/api/v1/*` (global)           | 100 requests | 1 minute | IP address             |
+| `/api/v1/auth/login`           | 10 requests  | 1 minute | IP address             |
+| `/api/v1/auth/register`        | 10 requests  | 1 minute | IP address             |
+| `POST /api/v1/jobs`            | 30 requests  | 1 hour   | User ID (fallback: IP) |
+| `POST /api/v1/reviews`         | 30 requests  | 1 hour   | User ID (fallback: IP) |
+| `POST /api/v1/disputes`        | 30 requests  | 1 hour   | User ID (fallback: IP) |
+| `/api/v1/auth/forgot-password` | 3 requests   | 1 hour   | IP address             |
 
 When a limit is exceeded, the API returns `429 Too Many Requests` with a `Retry-After` header indicating seconds until the limit resets.
 
