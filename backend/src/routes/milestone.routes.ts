@@ -227,6 +227,17 @@ router.put(
         .json({ error: "Not authorized to update this milestone." });
     }
 
+    if (updateData.amount != null) {
+      const siblings = await prisma.milestone.findMany({
+        where: { jobId: milestone.jobId, NOT: { id } },
+        select: { amount: true },
+      });
+      const otherTotal = siblings.reduce((s, m) => s + m.amount, 0);
+      if (milestone.job.budget != null && Number((otherTotal + updateData.amount).toFixed(7)) > Number(milestone.job.budget.toFixed(7))) {
+        return res.status(400).json({ error: "Total milestone amount exceeds job budget." });
+      }
+    }
+
     const updated = await prisma.milestone.update({
       where: { id },
       data: updateData,
@@ -304,7 +315,7 @@ router.patch(
       : (clientTransitions[currentStatus] || []);
 
     if (!allowedStatuses.includes(status)) {
-      return res.status(403).json({
+      return res.status(400).json({
         error: `Invalid status transition from ${currentStatus} to ${status} for ${isFreelancer ? 'Freelancer' : 'Client'}.`
       });
     }
@@ -375,6 +386,10 @@ router.put(
 
     if (milestone.status !== "IN_PROGRESS") {
       return res.status(400).json({ error: "Milestone must be in progress to submit." });
+    }
+
+    if (!milestone.job.freelancer.walletAddress) {
+      return res.status(400).json({ error: "Connect a wallet address before submitting this milestone." });
     }
 
     const xdr = await ContractService.buildSubmitMilestoneTx(
@@ -579,6 +594,10 @@ router.put(
 
     if (milestone.status !== "SUBMITTED") {
       return res.status(400).json({ error: "Milestone must be submitted to approve." });
+    }
+
+    if (!milestone.job.client.walletAddress) {
+      return res.status(400).json({ error: "Connect a wallet address before approving this milestone." });
     }
 
     const xdr = await ContractService.buildApproveMilestoneTx(

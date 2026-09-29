@@ -395,10 +395,47 @@ router.get(
     try {
       const attachment = await prisma.attachment.findUnique({
         where: { id: req.params.id as string },
+        include: {
+          job: {
+            select: {
+              id: true,
+              clientId: true,
+              freelancerId: true,
+            },
+          },
+          dispute: {
+            select: {
+              id: true,
+              clientId: true,
+              freelancerId: true,
+            },
+          },
+        },
       });
 
       if (!attachment) {
         return res.status(404).json({ error: "Attachment not found" });
+      }
+
+      // Access control: reuse the same logic as the download route
+      if (attachment.job) {
+        const isParticipant =
+          attachment.job.clientId === req.userId ||
+          attachment.job.freelancerId === req.userId;
+
+        if (!isParticipant && attachment.uploaderId !== req.userId) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+      } else if (attachment.dispute) {
+        const isDisputeParty =
+          attachment.dispute.clientId === req.userId ||
+          attachment.dispute.freelancerId === req.userId;
+
+        if (!isDisputeParty && attachment.uploaderId !== req.userId) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+      } else if (attachment.uploaderId !== req.userId) {
+        return res.status(403).json({ error: "Access denied" });
       }
 
       if (!attachment.sha256) {

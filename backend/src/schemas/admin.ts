@@ -57,6 +57,8 @@ export const getAuditLogsQuerySchema = paginationSchema.extend({
   format: z.enum(["json", "csv"]).optional(),
 });
 
+export const queryAdminDisputesSchema = paginationSchema;
+
 export const queryPendingDisputesSchema = paginationSchema;
 
 export const queryFlaggedUsersSchema = paginationSchema;
@@ -88,6 +90,7 @@ export type SuspendUserInput = z.infer<typeof suspendUserSchema>;
 export type GetUsersAdminQuery = z.infer<typeof getUsersAdminQuerySchema>;
 export type GetJobsAdminQuery = z.infer<typeof getJobsAdminQuerySchema>;
 export type OverrideDisputeInput = z.infer<typeof overrideDisputeSchema>;
+export type QueryAdminDisputes = z.infer<typeof queryAdminDisputesSchema>;
 export type QueryPendingDisputes = z.infer<typeof queryPendingDisputesSchema>;
 export type QueryFlaggedUsers = z.infer<typeof queryFlaggedUsersSchema>;
 export type UpdateReportInput = z.infer<typeof updateReportSchema>;
