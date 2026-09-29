@@ -64,6 +64,52 @@ cd ../backend && npm install
 cd ../contracts/escrow && cargo build --release --target wasm32-unknown-unknown
 ```
 
+### Environment Setup
+
+Before running the application, configure environment variables for each package:
+
+#### Backend
+
+Copy `backend/.env.example` to `backend/.env` and configure:
+
+```bash
+cd backend
+cp .env.example .env
+```
+
+Required variables:
+
+- `DATABASE_URL` — PostgreSQL connection string
+- `JWT_SECRET` — Token signing secret
+- `STELLAR_NETWORK_PASSPHRASE`, `STELLAR_RPC_URL`, `STELLAR_HORIZON_URL`
+- Contract IDs: `ESCROW_CONTRACT_ID`, `DISPUTE_CONTRACT_ID`, `REPUTATION_CONTRACT_ID`
+- `REDIS_URL` (optional, mocked in tests)
+- `ENCRYPTION_KEY` — 64-character hex string (required in CI)
+
+#### Contracts
+
+Copy `contracts/.env.example` to `contracts/.env` for deployment:
+
+```bash
+cd contracts
+cp .env.example .env
+```
+
+Required variables:
+
+- `STELLAR_NETWORK` — Network name in Stellar CLI (e.g., `testnet`)
+- `SOURCE_ACCOUNT` — CLI identity for deployments
+- `TOKEN_ADDRESS` — Token contract address
+
+#### Frontend
+
+Set `NEXT_PUBLIC_BACKEND_URL` environment variable at build time:
+
+```bash
+cd frontend
+echo "NEXT_PUBLIC_BACKEND_URL=http://localhost:3001" > .env.local
+```
+
 ### Development
 
 ```bash
