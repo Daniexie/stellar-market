@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { Search, SlidersHorizontal, X, LayoutGrid, Loader2 } from "lucide-react";
 import Link from "next/link";
 import axios from "axios";
@@ -74,8 +74,6 @@ function ServicesContent() {
     maxPrice: filters.maxPrice,
     sort: filters.sort,
   });
-  const prevFilterKey = useRef(filterKey);
-
   const buildParams = useCallback(
     (p: number) => {
       const params: Record<string, string | number> = {
@@ -138,9 +136,6 @@ function ServicesContent() {
   }, [loadingMore, hasMore, page, buildParams]);
 
   useEffect(() => {
-    if (prevFilterKey.current !== filterKey) {
-      prevFilterKey.current = filterKey;
-    }
     fetchFirstPage();
   }, [filterKey, fetchFirstPage]);
 
