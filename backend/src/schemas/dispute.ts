@@ -64,14 +64,18 @@ export const confirmDisputeTransactionSchema = z.object({
   respondentId: z.string().min(1, { message: "Respondent ID is required" }),
   reason: z
     .string()
-    .min(10, { message: "Reason must be at least 10 characters long" }),
+    .min(10, { message: "Reason must be at least 10 characters long" })
+    .max(2000, { message: "Reason must not exceed 2000 characters" }),
 });
 
 export const castVoteSchema = z.object({
   choice: z.enum(["CLIENT", "FREELANCER"], { 
     message: "Choice must be either CLIENT or FREELANCER" 
   }),
-  reason: z.string().min(10, { message: "Please provide a reason for your vote" }),
+  reason: z
+    .string()
+    .min(10, { message: "Please provide a reason for your vote" })
+    .max(2000, { message: "Reason must not exceed 2000 characters" }),
 });
 
 export const queryDisputesSchema = z.object({
@@ -81,7 +85,10 @@ export const queryDisputesSchema = z.object({
 });
 
 export const resolveDisputeSchema = z.object({
-  outcome: z.string().min(10, { message: "Outcome description must be at least 10 characters long" }),
+  outcome: z
+    .string()
+    .min(10, { message: "Outcome description must be at least 10 characters long" })
+    .max(2000, { message: "Outcome description must not exceed 2000 characters" }),
 });
 
 export const webhookPayloadSchema = z.object({
