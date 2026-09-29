@@ -1118,6 +1118,20 @@ impl EscrowContract {
             .get(&DataKey::RateSnapshot(job_id))
     }
 
+    /// Open a multi-sig proposal for an administrative action. The proposer's
+    /// address is recorded as the first approval; when the threshold is 1 and no
+    /// time-lock applies, the action executes immediately (so execution errors
+    /// below can surface from this call too).
+    ///
+    /// # Authorization
+    /// `proposer` must sign the invocation and already be in the multi-sig
+    /// signer set.
+    ///
+    /// # Errors
+    /// * `SignerNotFound`     — `proposer` is not a registered signer
+    /// * `GovernanceRequired` — governance is enabled and the action is one it owns
+    /// * `InvalidFee`         — `SetFeeBps` payload exceeds `MAX_FEE_BPS`
+    /// * execution errors from `execute_proposal_internal` when auto-executing
     pub fn propose_admin_action(
         env: Env,
         proposer: Address,
@@ -1201,6 +1215,22 @@ impl EscrowContract {
         Ok(count)
     }
 
+    /// Record an additional approval on a pending multi-sig proposal. When the
+    /// approval count reaches the threshold and the time-lock has elapsed, the
+    /// proposal executes immediately (so execution errors below can surface from
+    /// this call too).
+    ///
+    /// # Authorization
+    /// `approver` must sign the invocation and already be in the multi-sig
+    /// signer set; it must not have approved this proposal before.
+    ///
+    /// # Errors
+    /// * `SignerNotFound`          — `approver` is not a registered signer
+    /// * `MultiSigProposalNotFound` — no proposal with this ID
+    /// * `MultiSigAlreadyExecuted`  — the proposal has already been executed
+    /// * `MultiSigAlreadyApproved`  — `approver` has already approved it
+    /// * `ProposalExpired`          — the proposal is past `PROPOSAL_TTL`
+    /// * execution errors from `execute_proposal_internal` when threshold is met
     pub fn approve_admin_action(
         env: Env,
         approver: Address,
@@ -1255,6 +1285,25 @@ impl EscrowContract {
         Ok(())
     }
 
+    /// Execute a proposal that has already collected the approval threshold.
+    /// Delegates to `execute_proposal_internal`, which enacts the action and
+    /// archives the proposal.
+    ///
+    /// # Authorization
+    /// `caller` must sign the invocation and already be in the multi-sig signer
+    /// set. The proposal itself must independently satisfy its threshold and
+    /// time-lock; being a signer is not enough on its own.
+    ///
+    /// # Errors
+    /// * `SignerNotFound`          — `caller` is not a registered signer
+    /// * `MultiSigProposalNotFound` — no proposal with this ID
+    /// * `MultiSigAlreadyExecuted`  — the proposal has already been executed
+    /// * `ProposalExpired`          — the proposal is past `PROPOSAL_TTL`
+    /// * `Unauthorized`             — approvals are below the threshold
+    /// * `ProposalTimeLockActive`   — the time-lock has not elapsed yet
+    /// * `GovernanceRequired`       — governance is enabled and owns this action
+    /// * action-specific errors (e.g. `InvalidFee`, `InvalidThreshold`,
+    ///   `ContractNotPaused`, `JobNotFound`) raised while enacting the action
     pub fn execute_proposal(
         env: Env,
         caller: Address,
