@@ -215,7 +215,10 @@ export default function ChatThreadPage() {
         <div className="flex items-end gap-3 bg-theme-card p-2 rounded-2xl border border-theme-border focus-within:border-stellar-blue/50 transition-all shadow-xl">
           <button
             type="button"
-            className="p-2.5 text-theme-text hover:text-stellar-blue transition-colors"
+            className="p-2.5 text-theme-text/50 cursor-not-allowed"
+            aria-label="Attach file (coming soon)"
+            disabled
+            title="Coming soon"
           >
             <Paperclip size={20} />
           </button>
