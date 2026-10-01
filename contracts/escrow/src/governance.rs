@@ -700,7 +700,7 @@ impl EscrowContract {
             .persistent()
             .remove(&GovKey::Delegate(delegator.clone()));
         env.events().publish(
-            (symbol_short!("gov"), symbol_short!("undelegat")),
+            (symbol_short!("gov"), Symbol::new(&env, "undelegate")),
             (delegator,),
         );
         Ok(())
