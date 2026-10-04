@@ -128,6 +128,21 @@ pub enum AdminAction {
     /// Emergency withdrawal: recover escrowed funds from a specific job to a recipient address.
     /// Only executable when the contract is paused. Requires multi-sig approval.
     EmergencyWithdraw(u64, Address),
+    /// Reconfigure reputation-weighted governance (issue #899 follow-up).
+    /// Routed through the standard multisig flow like other sensitive admin
+    /// actions: it requires threshold signer approvals and is subject to the
+    /// 48-hour timelock, so no single compromised or rogue signer can
+    /// unilaterally reconfigure governance parameters — including the
+    /// reputation contract address that every vote's weight is sourced from.
+    ConfigureGovernance(
+        Address, // reputation contract providing snapshot voting weight
+        u64,     // voting_period_secs
+        u64,     // timelock_secs
+        u64,     // grace_secs
+        u128,    // quorum_votes
+        u32,     // pass_threshold_bps
+        u64,     // min_proposer_weight
+    ),
 }
 
 /// A pending multi-sig proposal. Executed when `approvals.len() >= threshold`.
@@ -1118,6 +1133,20 @@ impl EscrowContract {
             .get(&DataKey::RateSnapshot(job_id))
     }
 
+    /// Open a multi-sig proposal for an administrative action. The proposer's
+    /// address is recorded as the first approval; when the threshold is 1 and no
+    /// time-lock applies, the action executes immediately (so execution errors
+    /// below can surface from this call too).
+    ///
+    /// # Authorization
+    /// `proposer` must sign the invocation and already be in the multi-sig
+    /// signer set.
+    ///
+    /// # Errors
+    /// * `SignerNotFound`     — `proposer` is not a registered signer
+    /// * `GovernanceRequired` — governance is enabled and the action is one it owns
+    /// * `InvalidFee`         — `SetFeeBps` payload exceeds `MAX_FEE_BPS`
+    /// * execution errors from `execute_proposal_internal` when auto-executing
     pub fn propose_admin_action(
         env: Env,
         proposer: Address,
@@ -1160,6 +1189,7 @@ impl EscrowContract {
             AdminAction::Pause | AdminAction::SetTreasury(_) => {
                 now.saturating_add(MULTISIG_TIME_LOCK_SECS)
             }
+            AdminAction::ConfigureGovernance(..) => now.saturating_add(MULTISIG_TIME_LOCK_SECS),
             _ => now,
         };
 
@@ -1201,6 +1231,22 @@ impl EscrowContract {
         Ok(count)
     }
 
+    /// Record an additional approval on a pending multi-sig proposal. When the
+    /// approval count reaches the threshold and the time-lock has elapsed, the
+    /// proposal executes immediately (so execution errors below can surface from
+    /// this call too).
+    ///
+    /// # Authorization
+    /// `approver` must sign the invocation and already be in the multi-sig
+    /// signer set; it must not have approved this proposal before.
+    ///
+    /// # Errors
+    /// * `SignerNotFound`          — `approver` is not a registered signer
+    /// * `MultiSigProposalNotFound` — no proposal with this ID
+    /// * `MultiSigAlreadyExecuted`  — the proposal has already been executed
+    /// * `MultiSigAlreadyApproved`  — `approver` has already approved it
+    /// * `ProposalExpired`          — the proposal is past `PROPOSAL_TTL`
+    /// * execution errors from `execute_proposal_internal` when threshold is met
     pub fn approve_admin_action(
         env: Env,
         approver: Address,
@@ -1255,6 +1301,25 @@ impl EscrowContract {
         Ok(())
     }
 
+    /// Execute a proposal that has already collected the approval threshold.
+    /// Delegates to `execute_proposal_internal`, which enacts the action and
+    /// archives the proposal.
+    ///
+    /// # Authorization
+    /// `caller` must sign the invocation and already be in the multi-sig signer
+    /// set. The proposal itself must independently satisfy its threshold and
+    /// time-lock; being a signer is not enough on its own.
+    ///
+    /// # Errors
+    /// * `SignerNotFound`          — `caller` is not a registered signer
+    /// * `MultiSigProposalNotFound` — no proposal with this ID
+    /// * `MultiSigAlreadyExecuted`  — the proposal has already been executed
+    /// * `ProposalExpired`          — the proposal is past `PROPOSAL_TTL`
+    /// * `Unauthorized`             — approvals are below the threshold
+    /// * `ProposalTimeLockActive`   — the time-lock has not elapsed yet
+    /// * `GovernanceRequired`       — governance is enabled and owns this action
+    /// * action-specific errors (e.g. `InvalidFee`, `InvalidThreshold`,
+    ///   `ContractNotPaused`, `JobNotFound`) raised while enacting the action
     pub fn execute_proposal(
         env: Env,
         caller: Address,
@@ -1378,6 +1443,44 @@ impl EscrowContract {
                 env.storage()
                     .instance()
                     .set(&symbol_short!("TRE"), &treasury);
+            }
+            AdminAction::ConfigureGovernance(
+                reputation,
+                voting_period_secs,
+                timelock_secs,
+                grace_secs,
+                quorum_votes,
+                pass_threshold_bps,
+                min_proposer_weight,
+            ) => {
+                // Defense in depth: re-validate at execution time, exactly as
+                // `SetFeeBps` does, so a proposal can never enact parameters
+                // that would be rejected if proposed today. EscrowError is at
+                // the SDK's variant cap, so this reuses the nearest generic
+                // variant — the same pattern `create_job` uses for its
+                // self-employment rejection. Callers proposing through
+                // `configure_governance` get the precise `GovError::InvalidParam`
+                // before any proposal is created.
+                if voting_period_secs == 0 || pass_threshold_bps == 0 || pass_threshold_bps > 10_000
+                {
+                    return Err(EscrowError::Unauthorized);
+                }
+                let config = governance::GovernanceConfig {
+                    reputation: reputation.clone(),
+                    voting_period_secs,
+                    timelock_secs,
+                    grace_secs,
+                    quorum_votes,
+                    pass_threshold_bps,
+                    min_proposer_weight,
+                };
+                env.storage()
+                    .instance()
+                    .set(&governance::GovKey::Config, &config);
+                env.events().publish(
+                    (symbol_short!("gov"), symbol_short!("config")),
+                    (proposal.proposer.clone(), reputation, voting_period_secs),
+                );
             }
             AdminAction::AddSigner(signer) => {
                 let mut signers: Vec<Address> = env
