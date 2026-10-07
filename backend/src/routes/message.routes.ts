@@ -18,6 +18,8 @@ import {
   paginationSchema,
 } from "../schemas";
 
+import { buildConversationSummaries } from "../utils/conversations";
+
 const router = Router();
 /**
  * @swagger
@@ -143,34 +145,14 @@ router.get(
         orderBy: { createdAt: "desc" },
       });
 
-      const conversationMap = new Map<
-        string,
-        {
-          partner: { id: string; username: string; avatarUrl: string | null };
-          lastMessage: (typeof messages)[number];
-          unreadCount: number;
-        }
-      >();
-
-      for (const msg of messages) {
-        const partner = msg.senderId === userId ? msg.receiver : msg.sender;
-        const partnerId = partner.id;
-
-        if (!conversationMap.has(partnerId)) {
-          conversationMap.set(partnerId, {
-            partner,
-            lastMessage: msg,
-            unreadCount: 0,
-          });
-        }
-
-        if (msg.senderId === partnerId && !msg.read) {
-          const convo = conversationMap.get(partnerId)!;
-          convo.unreadCount += 1;
-        }
-      }
-
-      const allConversations = Array.from(conversationMap.values());
+      // Grouped by partner only: one entry per user, merged across jobs.
+      const allConversations = buildConversationSummaries(messages, userId, {
+        groupBy: "partner",
+      }).map(({ otherUser, lastMessage, unreadCount }) => ({
+        partner: otherUser,
+        lastMessage,
+        unreadCount,
+      }));
       const total = allConversations.length;
       const conversations = allConversations.slice(skip, skip + limit);
       const hasNext = skip + limit < total;
@@ -267,28 +249,11 @@ router.get("/",
       orderBy: { createdAt: "desc" },
     });
 
-    const conversationsMap = new Map();
-
-    allMessages.forEach((msg) => {
-      const otherUser = msg.senderId === req.userId ? msg.receiver : msg.sender;
-      const key = `${otherUser.id}-${msg.jobId || "no-job"}`;
-
-      if (!conversationsMap.has(key)) {
-        conversationsMap.set(key, {
-          id: key,
-          otherUser,
-          job: msg.job,
-          lastMessage: msg,
-          unreadCount: 0,
-        });
-      }
-
-      if (msg.receiverId === req.userId && !msg.read) {
-        conversationsMap.get(key).unreadCount++;
-      }
+    // Grouped by partner AND job: the same partner appears once per job
+    // (plus once for job-less messages), so the UI can show per-job threads.
+    const allConversations = buildConversationSummaries(allMessages, req.userId!, {
+      groupBy: "partner-and-job",
     });
-
-    const allConversations = Array.from(conversationsMap.values());
     const total = allConversations.length;
     const conversations = allConversations.slice(skip, skip + limit);
     const hasNext = skip + limit < total;
@@ -397,11 +362,21 @@ router.put(
     const id = req.params.id as string;
     const { isRead } = req.body;
 
+    const message = await prisma.message.findUnique({
+      where: { id },
+    });
+
+    if (!message) {
+      return res.status(404).json({ error: "Message not found." });
+    }
+    if (message.receiverId !== req.userId) {
+      return res
+        .status(403)
+        .json({ error: "Not authorized to mark this message as read." });
+    }
+
     await prisma.message.update({
-      where: {
-        id,
-        receiverId: req.userId!,
-      },
+      where: { id },
       data: { read: isRead },
     });
     res.status(204).send();
