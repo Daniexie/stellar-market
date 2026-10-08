@@ -51,6 +51,8 @@ pub enum DisputeError {
     ExclusionNotConfirmed = 25,
     ReplacementUnavailable = 26,
     InsufficientActiveArbitrators = 27,
+    EvidenceCapReached = 28,
+    DuplicateEvidence = 29,
 }
 
 #[contracttype]
@@ -194,7 +196,7 @@ pub struct DisputeTally {
     pub refund_split_sum: u64,
     /// Number of votes for refund split.
     pub refund_split_count: u32,
-    /// Number of votes for malicious filing.
+    /// Total weight of votes for malicious filing.
     pub malicious_weight: u64,
     /// Number of votes for malicious filing.
     pub malicious_count: u32,
@@ -404,7 +406,7 @@ fn bump_has_voted_ttl(env: &Env, dispute_id: u64, voter: &Address) {
     );
 }
 
-fn bump_dispute_count_ttl(env: &Env) {
+fn bump_instance_ttl(env: &Env) {
     env.storage()
         .instance()
         .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_EXTEND_TO);
@@ -796,7 +798,7 @@ impl DisputeContract {
             .instance()
             .set(&DataKey::ReputationSlashBps, &DEFAULT_REPUTATION_SLASH_BPS);
 
-        bump_dispute_count_ttl(&env);
+        bump_instance_ttl(&env);
 
         // Emit event
         env.events().publish(
@@ -813,7 +815,7 @@ impl DisputeContract {
         require_admin(&env, &admin)?;
 
         env.storage().instance().set(&DataKey::Paused, &true);
-        bump_dispute_count_ttl(&env);
+        bump_instance_ttl(&env);
 
         // Emit event
         env.events().publish(
@@ -830,7 +832,7 @@ impl DisputeContract {
         require_admin(&env, &admin)?;
 
         env.storage().instance().set(&DataKey::Paused, &false);
-        bump_dispute_count_ttl(&env);
+        bump_instance_ttl(&env);
 
         // Emit event
         env.events().publish(
@@ -854,7 +856,7 @@ impl DisputeContract {
         env.storage()
             .instance()
             .set(&DataKey::MinVoterReputation, &min_reputation);
-        bump_dispute_count_ttl(&env);
+        bump_instance_ttl(&env);
 
         // Emit event
         env.events().publish(
@@ -872,7 +874,7 @@ impl DisputeContract {
         require_admin(&env, &admin)?;
 
         env.storage().instance().set(&DataKey::CooldownDuration, &seconds);
-        bump_dispute_count_ttl(&env);
+        bump_instance_ttl(&env);
 
         env.events().publish(
             (symbol_short!("dispute"), symbol_short!("cooldown")),
@@ -1013,7 +1015,7 @@ impl DisputeContract {
             .set(&DataKey::Dispute(count), &dispute);
         env.storage().instance().set(&DataKey::DisputeCount, &count);
         bump_dispute_ttl(&env, count);
-        bump_dispute_count_ttl(&env);
+        bump_instance_ttl(&env);
         env.storage()
             .persistent()
             .set(&DataKey::Votes(count), &Vec::<Vote>::new(&env));
@@ -1532,7 +1534,7 @@ impl DisputeContract {
         bump_appeal_ttl(&env, appeal_count);
         bump_appeal_votes_ttl(&env, appeal_count);
         bump_dispute_appeal_ttl(&env, dispute_id);
-        bump_dispute_count_ttl(&env);
+        bump_instance_ttl(&env);
 
         env.events().publish(
             (symbol_short!("dispute"), symbol_short!("appealed")),
@@ -1892,6 +1894,14 @@ impl DisputeContract {
             .unwrap_or(Vec::new(&env))
     }
 
+    /// Get all votes for an appeal.
+    pub fn get_appeal_votes(env: Env, appeal_id: u64) -> Vec<Vote> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::AppealVotes(appeal_id))
+            .unwrap_or(Vec::new(&env))
+    }
+
     /// Submit evidence for an active dispute.
     ///
     /// Only the client or freelancer involved in the dispute may submit evidence.
@@ -1929,13 +1939,13 @@ impl DisputeContract {
 
         // Check if evidence count has reached the cap
         if evidence.len() >= MAX_EVIDENCE_PER_DISPUTE {
-            return Err(DisputeError::Unauthorized);
+            return Err(DisputeError::EvidenceCapReached);
         }
 
         // Check if the evidence hash already exists
         for existing in evidence.iter() {
             if existing.evidence_hash == evidence_hash {
-                return Err(DisputeError::Unauthorized);
+                return Err(DisputeError::DuplicateEvidence);
             }
         }
 
@@ -2173,7 +2183,7 @@ impl DisputeContract {
 
         pool.push_back(arbitrator.clone());
         env.storage().instance().set(&DataKey::ArbitratorPool, &pool);
-        bump_dispute_count_ttl(&env);
+        bump_instance_ttl(&env);
 
         env.events().publish(
             (symbol_short!("dispute"), symbol_short!("arb_added")),
@@ -2209,7 +2219,7 @@ impl DisputeContract {
 
         if removed {
             env.storage().instance().set(&DataKey::ArbitratorPool, &new_pool);
-            bump_dispute_count_ttl(&env);
+            bump_instance_ttl(&env);
 
             // Revoke the arbitrator's voting rights on all open disputes they were assigned to.
             let dispute_count: u64 = env
@@ -2299,9 +2309,17 @@ impl DisputeContract {
         );
 
         if !escrow_ok {
+            // Indexer payload: (dispute_id: u64, status: DisputeStatus, job_id: u64, client: Address, freelancer: Address, resolution: DisputeResolution)
             env.events().publish(
                 (symbol_short!("dispute"), Symbol::new(&env, "escrow_fail")),
-                (dispute_id, dispute.job_id),
+                (
+                    dispute_id,
+                    dispute.status.clone(),
+                    dispute.job_id,
+                    dispute.client.clone(),
+                    dispute.freelancer.clone(),
+                    resolution,
+                ),
             );
             return Ok(DisputeStatus::ResolutionFailed);
         }
@@ -2444,9 +2462,17 @@ fn internal_resolve(
                 .persistent()
                 .set(&DataKey::Dispute(dispute_id), &*dispute);
             bump_dispute_ttl(env, dispute_id);
+            // Indexer payload: (dispute_id: u64, status: DisputeStatus, job_id: u64, client: Address, freelancer: Address, resolution: DisputeResolution)
             env.events().publish(
                 (symbol_short!("dispute"), Symbol::new(env, "escrow_fail")),
-                (dispute_id, dispute.job_id),
+                (
+                    dispute_id,
+                    dispute.status.clone(),
+                    dispute.job_id,
+                    dispute.client.clone(),
+                    dispute.freelancer.clone(),
+                    DisputeResolution::MaliciousFiling,
+                ),
             );
             return Ok(DisputeStatus::ResolutionFailed);
         }
@@ -2588,9 +2614,17 @@ fn internal_resolve(
                 .persistent()
                 .set(&DataKey::Dispute(dispute_id), &*dispute);
             bump_dispute_ttl(env, dispute_id);
+            // Indexer payload: (dispute_id: u64, status: DisputeStatus, job_id: u64, client: Address, freelancer: Address, resolution: DisputeResolution)
             env.events().publish(
                 (symbol_short!("dispute"), Symbol::new(env, "escrow_fail")),
-                (dispute_id, dispute.job_id),
+                (
+                    dispute_id,
+                    dispute.status.clone(),
+                    dispute.job_id,
+                    dispute.client.clone(),
+                    dispute.freelancer.clone(),
+                    resolution,
+                ),
             );
             return Ok(DisputeStatus::ResolutionFailed);
         }
